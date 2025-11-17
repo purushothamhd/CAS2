@@ -1,4 +1,4 @@
-# physics_engine.py - IMPROVED VERSION
+# physics_engine.py - WITH DRONE SPEED CONTROL
 
 import time
 import numpy as np
@@ -26,7 +26,10 @@ tunable_params = {
     's0_epsilon': S0_EPSILON,
     's1_epsilon': S1_EPSILON,
     'energy_threshold_s1': ENERGY_THRESHOLD_S1,
-    'drone_mode': 'idle'
+    'drone_mode': 'idle',
+    'drone_orbit_speed': 0.02,      # NEW: Angular velocity for orbit mode
+    'drone_patrol_speed': 0.01,     # NEW: Frequency for patrol mode
+    'log_snapshot': False           # NEW: Flag to trigger snapshot logging
 }
 
 class Particle:
@@ -67,7 +70,7 @@ def simulation_process(data_q, param_q):
 
     while True:
         try:
-            # FIX 1: Check for ALL messages in queue before proceeding
+            # Check for ALL messages in queue before proceeding
             messages_processed = 0
             while messages_processed < 10:  # Limit to prevent infinite loop
                 try:
@@ -87,21 +90,22 @@ def simulation_process(data_q, param_q):
                     break  # No more messages
 
             if not running:
-                time.sleep(0.05)  # Reduced sleep time for faster response
+                time.sleep(0.05)
                 continue
 
-            # FIX 2: Update drone position IMMEDIATELY based on mode
-            # Reset drone velocity/acceleration for controlled modes
+            # Update drone position based on mode with controllable speed
             if tunable_params['drone_mode'] == 'orbit':
                 center = Vector2D(ENV_SIZE[0] / 2, ENV_SIZE[1] / 2)
-                radius, ang_vel = 200, 0.02
+                radius = 200
+                ang_vel = tunable_params['drone_orbit_speed']  # Use tunable parameter
                 drone.position.x = center.x + radius * math.cos(tick * ang_vel)
                 drone.position.y = center.y + radius * math.sin(tick * ang_vel)
                 drone.velocity = Vector2D(0, 0)
                 drone.acceleration = Vector2D(0, 0)
             elif tunable_params['drone_mode'] == 'patrol':
                 amplitude = ENV_SIZE[0] / 2 - 50
-                drone.position.x = ENV_SIZE[0] / 2 + amplitude * math.sin(tick * 0.01)
+                freq = tunable_params['drone_patrol_speed']  # Use tunable parameter
+                drone.position.x = ENV_SIZE[0] / 2 + amplitude * math.sin(tick * freq)
                 drone.position.y = ENV_SIZE[1] / 2
                 drone.velocity = Vector2D(0, 0)
                 drone.acceleration = Vector2D(0, 0)
