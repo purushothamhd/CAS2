@@ -1,9 +1,11 @@
-# physics_engine.py - WITH DRONE SPEED CONTROL
+# physics_engine.py - WITH DRONE SPEED CONTROL AND SNAPSHOT LOGGING
 
 import time
 import numpy as np
 import queue
 import math
+import csv
+from datetime import datetime
 from vector import Vector2D
 from grid import Grid
 
@@ -67,6 +69,65 @@ def simulation_process(data_q, param_q):
     
     running, tick = False, 0
     print("[Engine] Physics engine started. Waiting for command.")
+    
+    def log_snapshot(particles, tick, filename=None):
+        """Log current state of all particles to CSV"""
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"simulation_snapshot_tick_{tick}_{timestamp}.csv"
+        
+        try:
+            with open(filename, 'w', newline='') as csvfile:
+                fieldnames = [
+                    'tick', 'particle_id', 'is_drone', 'state',
+                    'position_x', 'position_y',
+                    'velocity_x', 'velocity_y', 'velocity_magnitude',
+                    'acceleration_x', 'acceleration_y', 'acceleration_magnitude',
+                    'force_x', 'force_y', 'force_magnitude',
+                    'mass', 'sigma', 'epsilon',
+                    'kinetic_energy', 'potential_energy', 'total_energy',
+                    'speed'
+                ]
+                
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for p in particles:
+                    vel_mag = p.velocity.magnitude()
+                    acc_mag = p.acceleration.magnitude()
+                    force_mag = p.net_force.magnitude()
+                    total_e = p.kinetic_energy + p.potential_energy
+                    
+                    writer.writerow({
+                        'tick': tick,
+                        'particle_id': p.id,
+                        'is_drone': 'Yes' if p.id == 0 else 'No',
+                        'state': p.state,
+                        'position_x': round(p.position.x, 4),
+                        'position_y': round(p.position.y, 4),
+                        'velocity_x': round(p.velocity.x, 4),
+                        'velocity_y': round(p.velocity.y, 4),
+                        'velocity_magnitude': round(vel_mag, 4),
+                        'acceleration_x': round(p.acceleration.x, 4),
+                        'acceleration_y': round(p.acceleration.y, 4),
+                        'acceleration_magnitude': round(acc_mag, 4),
+                        'force_x': round(p.net_force.x, 4),
+                        'force_y': round(p.net_force.y, 4),
+                        'force_magnitude': round(force_mag, 4),
+                        'mass': p.mass,
+                        'sigma': p.sigma,
+                        'epsilon': p.epsilon,
+                        'kinetic_energy': round(p.kinetic_energy, 4),
+                        'potential_energy': round(p.potential_energy, 4),
+                        'total_energy': round(total_e, 4),
+                        'speed': round(vel_mag, 4)
+                    })
+            
+            print(f"[Engine] ✅ Snapshot saved: {filename}")
+            return filename
+        except Exception as e:
+            print(f"[Engine] ❌ Error saving snapshot: {e}")
+            return None
 
     while True:
         try:
@@ -82,7 +143,20 @@ def simulation_process(data_q, param_q):
                         elif message['command'] == 'STOP':
                             running = False
                             print("[Engine] STOP command received.")
+                        elif message['command'] == 'LOG_SNAPSHOT':
+                            # Log snapshot immediately
+                            filename = log_snapshot(particles, tick)
+                            # Send confirmation back via queue (optional)
+                            try:
+                                data_q.put_nowait({'type': 'snapshot_saved', 'filename': filename, 'tick': tick})
+                            except queue.Full:
+                                pass
                     elif 'params' in message:
+                        # Check if log_snapshot flag is set
+                        if message['params'].get('log_snapshot', False):
+                            filename = log_snapshot(particles, tick)
+                            message['params']['log_snapshot'] = False  # Reset flag
+                        
                         tunable_params.update(message['params'])
                         print(f"[Engine] Reloaded parameters: {tunable_params}")
                     messages_processed += 1
